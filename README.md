@@ -26,7 +26,8 @@ cd maamul360
 
 ### 2. Install Dependencies
 ```bash
-npm install
+npmear
+ install
 ```
 
 ### 3. Local Domain Setup
