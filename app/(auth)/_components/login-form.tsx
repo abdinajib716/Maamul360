@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useForm } from 'react-hook-form'
 import { zodResolver } from '@hookform/resolvers/zod'
 import * as z from 'zod'
@@ -14,7 +14,7 @@ import {
   FormMessage,
 } from '@/components/ui/form'
 import { Input } from '@/components/ui/input'
-import { useRouter } from 'next/navigation'
+import { useRouter, useSearchParams } from 'next/navigation'
 
 const formSchema = z.object({
   email: z.string().email({
@@ -30,19 +30,38 @@ const formSchema = z.object({
 
 export function LoginForm() {
   const router = useRouter()
+  const searchParams = useSearchParams()
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState('')
+
+  // Get the current host to extract subdomain
+  const currentHost = typeof window !== 'undefined' ? window.location.host : ''
+  const subdomain = currentHost.split('.')[0]
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
     defaultValues: {
-      email: '',
+      email: searchParams?.get('email') || '',
       password: '',
-      subdomain: '',
+      subdomain: subdomain !== 'maamul360' ? subdomain : '',
     },
   })
 
+  // Update form values when URL parameters change
+  useEffect(() => {
+    const email = searchParams?.get('email')
+    if (email) {
+      form.setValue('email', email)
+    }
+    
+    // If we're on a subdomain, set it in the form
+    if (subdomain && subdomain !== 'maamul360') {
+      form.setValue('subdomain', subdomain)
+    }
+  }, [searchParams, form, subdomain])
+
   async function onSubmit(values: z.infer<typeof formSchema>) {
+    console.log('[LoginForm] Submitting:', { values })
     setIsLoading(true)
     setError('')
 
@@ -61,12 +80,14 @@ export function LoginForm() {
       }
 
       const data = await response.json()
+      console.log('[LoginForm] Login successful:', data)
       
       // Construct tenant URL and redirect
       const tenantUrl = `http://${values.subdomain}.maamul360.local:3000/dashboard`
+      console.log('[LoginForm] Redirecting to:', tenantUrl)
       window.location.href = tenantUrl
     } catch (error) {
-      console.error('Login error:', error)
+      console.error('[LoginForm] Login error:', error)
       setError(error instanceof Error ? error.message : 'Login failed')
     } finally {
       setIsLoading(false)
@@ -83,7 +104,11 @@ export function LoginForm() {
             <FormItem>
               <FormLabel>Company Subdomain</FormLabel>
               <FormControl>
-                <Input placeholder="your-company" {...field} />
+                <Input 
+                  placeholder="your-company" 
+                  {...field} 
+                  disabled={subdomain && subdomain !== 'maamul360'}
+                />
               </FormControl>
               <FormMessage />
             </FormItem>

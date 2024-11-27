@@ -26,8 +26,7 @@ cd maamul360
 
 ### 2. Install Dependencies
 ```bash
-npmear
- install
+npm install
 ```
 
 ### 3. Local Domain Setup
@@ -99,6 +98,10 @@ npx prisma db push
 ```bash
 npm run dev
 ```
+
+## Documentation
+
+- [Email Verification Redirect Fix](./docs/EMAIL_VERIFICATION_REDIRECT_FIX.md) - Detailed analysis and solution for email verification redirect issues
 
 ## Troubleshooting
 

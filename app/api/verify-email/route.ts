@@ -1,17 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '@/lib/prisma'
-import { cookies } from 'next/headers'
 
 export async function GET(req: NextRequest) {
   try {
     const { searchParams } = new URL(req.url)
     const token = searchParams.get('token')
 
-    console.log('Starting verification process for token:', token?.substring(0, 8))
+    console.log('[VerifyEmail] Starting verification:', {
+      token: token?.substring(0, 8),
+      url: req.url
+    })
 
     if (!token) {
-      console.error('Verification failed: No token provided')
-      return NextResponse.redirect(new URL('/verify-success?error=no_token', process.env.NEXT_PUBLIC_APP_URL!))
+      console.log('[VerifyEmail] Error: No token provided')
+      return redirectToVerifySuccess({ error: 'no_token' })
     }
 
     // Find user with this verification token
@@ -24,24 +26,32 @@ export async function GET(req: NextRequest) {
       },
     })
 
-    console.log('User lookup result:', user ? 'Found' : 'Not found')
+    console.log('[VerifyEmail] User lookup:', {
+      found: !!user,
+      email: user?.email,
+      subdomain: user?.tenant?.subdomain
+    })
 
     if (!user) {
-      console.error('Verification failed: Invalid token')
-      return NextResponse.redirect(new URL('/verify-success?error=invalid_token', process.env.NEXT_PUBLIC_APP_URL!))
+      console.log('[VerifyEmail] Error: Invalid token')
+      return redirectToVerifySuccess({ error: 'invalid_token' })
     }
 
     // Check if token is expired
     if (user.verificationExpires && user.verificationExpires < new Date()) {
-      console.error('Verification failed: Token expired')
-      return NextResponse.redirect(new URL('/verify-success?error=token_expired', process.env.NEXT_PUBLIC_APP_URL!))
+      console.log('[VerifyEmail] Error: Token expired')
+      return redirectToVerifySuccess({ error: 'token_expired' })
     }
 
     // Check if already verified
     if (user.isVerified) {
-      console.log('User already verified:', user.email)
-      const loginUrl = `http://${user.tenant.subdomain}.maamul360.local:3000/login?email=${encodeURIComponent(user.email)}`
-      return NextResponse.redirect(loginUrl)
+      console.log('[VerifyEmail] User already verified:', user.email)
+      return redirectToVerifySuccess({
+        verified: 'true',
+        email: user.email,
+        subdomain: user.tenant.subdomain,
+        alreadyVerified: 'true'
+      })
     }
 
     try {
@@ -63,35 +73,33 @@ export async function GET(req: NextRequest) {
         })
       }
 
-      console.log('User verified successfully:', user.email)
-
-      // Create success URL with parameters
-      const successUrl = new URL('/verify-success', process.env.NEXT_PUBLIC_APP_URL!)
-      successUrl.searchParams.set('verified', 'true')
-      successUrl.searchParams.set('subdomain', user.tenant.subdomain)
-      successUrl.searchParams.set('email', user.email)
-
-      // Create response with redirect
-      const response = NextResponse.redirect(successUrl)
-
-      // Set verification cookie with proper configuration
-      response.cookies.set('verification_status', 'success', {
-        maxAge: 60,
-        path: '/',
-        httpOnly: true,
-        secure: process.env.NODE_ENV === 'production',
-        sameSite: 'lax'
+      console.log('[VerifyEmail] Verification successful:', {
+        email: user.email,
+        subdomain: user.tenant.subdomain
       })
 
-      return response
+      return redirectToVerifySuccess({
+        verified: 'true',
+        email: user.email,
+        subdomain: user.tenant.subdomain
+      })
 
     } catch (updateError) {
-      console.error('Error updating user/tenant:', updateError)
-      return NextResponse.redirect(new URL('/verify-success?error=update_failed', process.env.NEXT_PUBLIC_APP_URL!))
+      console.error('[VerifyEmail] Update error:', updateError)
+      return redirectToVerifySuccess({ error: 'update_failed' })
     }
 
   } catch (error) {
-    console.error('Verification error:', error)
-    return NextResponse.redirect(new URL('/verify-success?error=server_error', process.env.NEXT_PUBLIC_APP_URL!))
+    console.error('[VerifyEmail] Server error:', error)
+    return redirectToVerifySuccess({ error: 'server_error' })
   }
+}
+
+function redirectToVerifySuccess(params: Record<string, string>) {
+  const url = new URL('/verify-success', process.env.NEXT_PUBLIC_APP_URL)
+  Object.entries(params).forEach(([key, value]) => {
+    url.searchParams.set(key, value)
+  })
+  console.log('[VerifyEmail] Redirecting to:', url.toString())
+  return NextResponse.redirect(url)
 }

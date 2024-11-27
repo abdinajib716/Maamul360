@@ -2,13 +2,11 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { getCookie } from 'cookies-next'
 import { CheckCircle, XCircle, Loader2 } from 'lucide-react'
 
 export default function VerifySuccessPage() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const [mounted, setMounted] = useState(false)
   const [verificationState, setVerificationState] = useState({
     status: 'loading' as 'loading' | 'success' | 'error',
     message: '',
@@ -16,74 +14,86 @@ export default function VerifySuccessPage() {
   })
 
   useEffect(() => {
-    setMounted(true)
-  }, [])
-
-  useEffect(() => {
-    if (!mounted) return
-
     const error = searchParams.get('error')
     const verified = searchParams.get('verified')
     const email = searchParams.get('email')
     const subdomain = searchParams.get('subdomain')
-    const verificationStatus = getCookie('verification_status')
+    const alreadyVerified = searchParams.get('alreadyVerified')
+
+    console.log('[VerifySuccess] Params:', {
+      error,
+      verified,
+      email,
+      subdomain,
+      alreadyVerified
+    })
 
     let timer: NodeJS.Timeout
     let countdownInterval: NodeJS.Timeout
 
-    timer = setTimeout(() => {
-      if (error) {
-        const errorMessages: Record<string, string> = {
-          no_token: 'No verification token was provided.',
-          invalid_token: 'This verification link is invalid or has expired.',
-          token_expired: 'This verification link has expired.',
-          update_failed: 'Failed to update verification status. Please try again.',
-          server_error: 'An unexpected error occurred. Please try again later.'
-        }
+    const errorMessages: Record<string, string> = {
+      no_token: 'No verification token was provided.',
+      invalid_token: 'This verification link is invalid or has expired.',
+      token_expired: 'This verification link has expired.',
+      update_failed: 'Failed to update verification status. Please try again.',
+      server_error: 'An unexpected error occurred. Please try again later.'
+    }
 
-        setVerificationState(prev => ({
-          ...prev,
-          status: 'error',
-          message: errorMessages[error] || 'Verification failed. Please try again.'
-        }))
-      } else if (verified === 'true' && verificationStatus === 'success') {
-        setVerificationState(prev => ({
-          ...prev,
-          status: 'success',
-          message: `Your email has been successfully verified! Redirecting to login...`
-        }))
+    if (error) {
+      console.log('[VerifySuccess] Error state:', error)
+      setVerificationState(prev => ({
+        ...prev,
+        status: 'error',
+        message: errorMessages[error] || 'Verification failed. Please try again.'
+      }))
+    } else if (verified === 'true' && subdomain && email) {
+      const message = alreadyVerified === 'true' 
+        ? 'You are already verified. Redirecting to login...'
+        : 'Your email has been successfully verified! Redirecting to login...'
 
-        if (subdomain && email) {
-          countdownInterval = setInterval(() => {
-            setVerificationState(prev => {
-              if (prev.countdown <= 1) {
-                clearInterval(countdownInterval)
-                const loginUrl = `http://${subdomain}.maamul360.local:3000/login?email=${encodeURIComponent(email)}`
-                window.location.href = loginUrl
-                return prev
-              }
-              return { ...prev, countdown: prev.countdown - 1 }
-            })
-          }, 1000)
-        }
-      } else {
-        setVerificationState(prev => ({
-          ...prev,
-          status: 'error',
-          message: 'Invalid verification attempt. Please try registering again.'
-        }))
-      }
-    }, 1500)
+      console.log('[VerifySuccess] Success state:', { subdomain, email, alreadyVerified })
+      
+      setVerificationState(prev => ({
+        ...prev,
+        status: 'success',
+        message
+      }))
+
+      countdownInterval = setInterval(() => {
+        setVerificationState(prev => {
+          if (prev.countdown <= 1) {
+            clearInterval(countdownInterval)
+            
+            // Ensure we're redirecting to the login page with proper parameters
+            const loginUrl = new URL(`http://${subdomain}.maamul360.local:3000/login`)
+            loginUrl.searchParams.set('email', email)
+            loginUrl.searchParams.set('verified', 'true')
+            loginUrl.searchParams.set('timestamp', Date.now().toString())
+            
+            console.log('[VerifySuccess] Final redirect URL:', loginUrl.toString())
+            
+            // Use window.location.replace for immediate redirect
+            window.location.replace(loginUrl.toString())
+            return prev
+          }
+          console.log('[VerifySuccess] Countdown:', prev.countdown - 1)
+          return { ...prev, countdown: prev.countdown - 1 }
+        })
+      }, 1000)
+    } else {
+      console.log('[VerifySuccess] Invalid state')
+      setVerificationState(prev => ({
+        ...prev,
+        status: 'error',
+        message: 'Invalid verification attempt. Please try registering again.'
+      }))
+    }
 
     return () => {
       clearTimeout(timer)
       clearInterval(countdownInterval)
     }
-  }, [mounted, searchParams])
-
-  if (!mounted) {
-    return null
-  }
+  }, [searchParams])
 
   const { status, message, countdown } = verificationState
 
@@ -117,6 +127,9 @@ export default function VerifySuccessPage() {
                     style={{ width: `${((3 - countdown) / 3) * 100}%` }}
                   />
                 </div>
+                <p className="text-sm text-gray-500 mt-2">
+                  Redirecting in {countdown} seconds...
+                </p>
               </div>
             </div>
           )}
