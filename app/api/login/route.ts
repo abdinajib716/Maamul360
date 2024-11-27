@@ -20,7 +20,7 @@ app.post('/api/login', async (c) => {
     if (!contentType || !contentType.includes('application/json')) {
       return c.json(
         { success: false, error: 'Content-Type must be application/json' },
-        400
+        415
       )
     }
 
@@ -93,10 +93,14 @@ app.post('/api/login', async (c) => {
     }
 
     // Check if email is verified
-    if (!user.emailVerified) {
+    if (!user.isVerified) {
       return c.json(
-        { success: false, error: 'Please verify your email before logging in' },
-        400
+        { 
+          success: false, 
+          error: 'Please verify your email before logging in',
+          verificationRequired: true
+        },
+        403
       )
     }
 

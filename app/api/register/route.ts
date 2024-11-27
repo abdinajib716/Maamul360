@@ -1,45 +1,45 @@
-import { NextRequest } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import crypto from 'crypto'
 import { z } from 'zod'
 import { prisma } from '@/lib/prisma'
 import { registerSchema } from '@/lib/validations/auth'
 import { sendVerificationEmail, verifyEmailConfig } from '@/lib/email'
-import { successResponse, errorResponse, validateContentType } from '@/lib/utils/api-response'
-import { ValidationError, ConflictError, DatabaseError } from '@/lib/utils/api-error'
+import { ValidationError, ConflictError, DatabaseError, RequestError, ServerError } from '@/lib/utils/api-error'
 
-export async function POST(request: NextRequest) {
+export async function POST(req: NextRequest) {
   try {
-    // Validate content type
-    validateContentType(request.headers.get('content-type'))
+    // Basic validation
+    if (!req.body) {
+      return NextResponse.json(
+        { success: false, error: 'Request body is required' },
+        { status: 400 }
+      )
+    }
 
-    // Parse and validate request body
-    let body: unknown
+    // Content-type validation
+    const contentType = req.headers.get('content-type')
+    if (!contentType?.includes('application/json')) {
+      return NextResponse.json(
+        { success: false, error: 'Content-Type must be application/json' },
+        { status: 415 }
+      )
+    }
+
+    // Parse request body
+    let requestData: any
     try {
-      const text = await request.text()
-      if (!text) {
-        throw new ValidationError('Request body is empty')
-      }
-      body = JSON.parse(text)
-    } catch (e) {
-      throw new ValidationError('Invalid JSON in request body')
+      requestData = await req.json()
+    } catch (error) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid JSON payload' },
+        { status: 400 }
+      )
     }
-
-    if (!body || typeof body !== 'object') {
-      throw new ValidationError('Request body must be an object')
-    }
-
-    // Ensure numberOfBranches is a number
-    if (typeof (body as any).numberOfBranches === 'string') {
-      (body as any).numberOfBranches = parseInt((body as any).numberOfBranches, 10)
-    }
-
-    console.log('Processing registration request:', body)
 
     // Validate request data
     try {
-      const validatedData = registerSchema.parse(body)
-      console.log('Validation successful:', validatedData)
+      const validatedData = registerSchema.parse(requestData)
 
       // Check existing tenant
       const existingTenant = await prisma.tenant.findFirst({
@@ -53,10 +53,16 @@ export async function POST(request: NextRequest) {
 
       if (existingTenant) {
         if (existingTenant.companyEmail === validatedData.companyEmail) {
-          throw new ConflictError('Email already registered')
+          return NextResponse.json(
+            { success: false, error: 'Email already registered' },
+            { status: 409 }
+          )
         }
         if (existingTenant.subdomain === validatedData.subdomain) {
-          throw new ConflictError('Subdomain already taken')
+          return NextResponse.json(
+            { success: false, error: 'Subdomain already taken' },
+            { status: 409 }
+          )
         }
       }
 
@@ -65,93 +71,99 @@ export async function POST(request: NextRequest) {
 
       // Create verification token
       const verificationToken = crypto.randomUUID()
-      const verificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 hours
-
-      // Verify email configuration before proceeding
-      await verifyEmailConfig()
+      const verificationExpires = new Date(Date.now() + 24 * 60 * 60 * 1000)
 
       // Create tenant and admin user in a transaction
-      try {
-        const result = await prisma.$transaction(async (tx) => {
-          // Create tenant
-          const tenant = await tx.tenant.create({
-            data: {
-              companyName: validatedData.companyName,
-              companyEmail: validatedData.companyEmail,
-              subdomain: validatedData.subdomain,
-              numberOfBranches: validatedData.numberOfBranches,
-              status: 'pending',
-            },
-          })
-
-          // Create admin user
-          const user = await tx.user.create({
-            data: {
-              email: validatedData.companyEmail,
-              password: hashedPassword,
-              role: 'admin',
-              tenantId: tenant.id,
-              verificationToken,
-              verificationExpires,
-              isVerified: false,
-            },
-          })
-
-          return { tenant, user }
+      const result = await prisma.$transaction(async (tx) => {
+        const tenant = await tx.tenant.create({
+          data: {
+            companyName: validatedData.companyName,
+            companyEmail: validatedData.companyEmail,
+            subdomain: validatedData.subdomain,
+            numberOfBranches: Number(validatedData.numberOfBranches),
+            status: 'pending',
+          },
         })
 
-        // Send verification email
-        try {
-          await sendVerificationEmail({
+        const user = await tx.user.create({
+          data: {
             email: validatedData.companyEmail,
-            token: verificationToken,
-          })
+            password: hashedPassword,
+            role: 'admin',
+            tenantId: tenant.id,
+            verificationToken,
+            verificationExpires,
+            isVerified: false,
+          },
+        })
 
-          return successResponse(
-            {
-              tenantId: result.tenant.id,
-              email: result.user.email,
-              subdomain: result.tenant.subdomain,
-            },
-            'Registration successful! Please check your email to verify your account.',
-            201
-          )
-        } catch (emailError) {
-          console.error('Failed to send verification email:', emailError)
-          
-          // Don't rollback the transaction, just notify about email issue
-          return successResponse(
-            {
-              tenantId: result.tenant.id,
-              email: result.user.email,
-              subdomain: result.tenant.subdomain,
-            },
-            'Registration successful but verification email could not be sent. Please contact support.',
-            201
-          )
-        }
-      } catch (dbError: any) {
-        console.error('Database error:', dbError)
-        
-        if (dbError.code === 'P2002') {
-          throw new ConflictError('This email or subdomain is already registered.')
-        }
-        
-        throw new DatabaseError('Failed to create account', dbError)
+        return { tenant, user }
+      })
+
+      // Try to send verification email
+      let emailSent = false
+      try {
+        await sendVerificationEmail({
+          email: validatedData.companyEmail,
+          token: verificationToken,
+        })
+        emailSent = true
+      } catch (error) {
+        console.error('Failed to send verification email:', error)
       }
-    } catch (validationError) {
-      console.error('Validation error:', validationError)
-      if (validationError instanceof z.ZodError) {
-        throw new ValidationError('Validation failed', 
-          validationError.errors.map(e => ({
+
+      // Return success response
+      return NextResponse.json({
+        success: true,
+        data: {
+          tenantId: result.tenant.id,
+          email: result.user.email,
+          subdomain: result.tenant.subdomain,
+          emailSent,
+        },
+        message: emailSent
+          ? 'Registration successful! Please check your email to verify your account.'
+          : 'Registration successful but verification email could not be sent. Please contact support.',
+      }, { status: 201 })
+
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return NextResponse.json({
+          success: false,
+          error: 'Validation failed',
+          details: error.errors.map(e => ({
             field: e.path.join('.'),
             message: e.message
           }))
-        )
+        }, { status: 400 })
       }
-      throw validationError
+
+      if (error instanceof Error) {
+        console.error('Registration error:', error)
+        return NextResponse.json({
+          success: false,
+          error: 'Registration failed',
+          details: process.env.NODE_ENV === 'development' ? {
+            message: error.message,
+            stack: error.stack
+          } : undefined
+        }, { status: 500 })
+      }
+
+      return NextResponse.json({
+        success: false,
+        error: 'An unexpected error occurred'
+      }, { status: 500 })
     }
   } catch (error) {
-    return errorResponse(error)
+    console.error('Unhandled error:', error)
+    return NextResponse.json({
+      success: false,
+      error: 'An unexpected error occurred',
+      details: process.env.NODE_ENV === 'development' ? {
+        message: error instanceof Error ? error.message : 'Unknown error',
+        stack: error instanceof Error ? error.stack : undefined
+      } : undefined
+    }, { status: 500 })
   }
 }

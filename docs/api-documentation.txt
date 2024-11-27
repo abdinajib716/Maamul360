@@ -1,0 +1,291 @@
+# Maamul360 API Documentation and Error Analysis
+
+## File Structure
+```
+maamul360/
+├── app/
+│   └── api/
+│       └── register/
+│           └── route.ts
+├── lib/
+│   ├── utils/
+│   │   ├── api-error.ts
+│   │   └── api-response.ts
+│   ├── email.ts
+│   ├── prisma.ts
+│   └── validations/
+│       └── auth.ts
+```
+
+## 1. Registration Route
+Path: app/api/register/route.ts
+Purpose: Handles user registration
+Common Errors:
+- 500: Payload type error (current issue)
+- 400: Invalid JSON body
+- 409: Email/subdomain conflicts
+- 415: Invalid content type
+
+Key Points:
+- Uses NextRequest for type safety
+- Implements proper error handling
+- Manages database transactions
+- Handles email verification
+
+## 2. API Error Handling
+Path: lib/utils/api-error.ts
+Purpose: Custom error classes
+Error Types:
+- ValidationError (400)
+- AuthenticationError (401)
+- ForbiddenError (403)
+- NotFoundError (404)
+- ConflictError (409)
+- DatabaseError (500)
+- EmailError (500)
+
+## 3. API Response Handling
+Path: lib/utils/api-response.ts
+Purpose: Standardized response formatting
+Response Types:
+- Success: { success: true, data?, message? }
+- Error: { success: false, error, details? }
+
+Common Issues:
+- Payload serialization errors
+- Content-type mismatches
+- Response structure inconsistencies
+
+## 4. Email System
+Path: lib/email.ts
+Purpose: Email sending functionality
+Potential Issues:
+- SMTP configuration errors
+- Template rendering problems
+- Verification token issues
+- Email delivery failures
+
+## 5. Database Connection
+Path: lib/prisma.ts
+Purpose: Database client initialization
+Common Problems:
+- Connection string errors
+- Pool exhaustion
+- Transaction timeouts
+- Constraint violations
+
+## 6. Validation Schema
+Path: lib/validations/auth.ts
+Purpose: Request validation
+Validation Rules:
+- Email format
+- Password strength
+- Company details
+- Subdomain format
+
+## Current Error Analysis
+
+The current error "payload argument must be of type object" typically occurs due to:
+
+1. Request Parsing Issues:
+   - Body not properly parsed as JSON
+   - Empty request body
+   - Malformed JSON data
+
+2. Response Formation Problems:
+   - Incorrect use of NextResponse
+   - Manual JSON stringification issues
+   - Null/undefined payload handling
+
+3. Middleware Interference:
+   - Body parsing middleware conflicts
+   - Content-type validation issues
+   - Stream consumption problems
+
+## Debugging Steps
+
+1. Request Validation:
+```typescript
+// Add these logs in route.ts
+console.log('Headers:', request.headers)
+console.log('Content-Type:', request.headers.get('content-type'))
+console.log('Raw body:', await request.text())
+```
+
+2. Response Formation:
+```typescript
+// Use NextResponse.json instead of new NextResponse
+return NextResponse.json(response, {
+  status: status,
+  headers: {
+    'Content-Type': 'application/json'
+  }
+})
+```
+
+3. Error Handling:
+```typescript
+// Add detailed error logging
+console.error('Error details:', {
+  name: error.name,
+  message: error.message,
+  stack: error.stack,
+  cause: error.cause
+})
+```
+
+## Environment Requirements
+
+Required environment variables:
+```env
+DATABASE_URL=postgresql://...
+NEXT_PUBLIC_APP_URL=http://localhost:3000
+SMTP_HOST=smtp.gmail.com
+SMTP_PORT=587
+SMTP_USER=your-email@gmail.com
+SMTP_PASSWORD=your-app-password
+```
+
+## Common Solutions
+
+1. Request Body Parsing:
+```typescript
+let body: unknown
+try {
+  const text = await request.text()
+  if (!text) {
+    throw new ValidationError('Request body is empty')
+  }
+  body = JSON.parse(text)
+  if (!body || typeof body !== 'object') {
+    throw new ValidationError('Request body must be an object')
+  }
+} catch (e) {
+  throw new ValidationError('Invalid JSON in request body')
+}
+```
+
+2. Response Handling:
+```typescript
+export function successResponse<T = any>(data?: T, message?: string, status: number = 200): NextResponse {
+  const response = {
+    success: true,
+    ...(data && { data }),
+    ...(message && { message })
+  }
+  return NextResponse.json(response, { status })
+}
+```
+
+3. Error Response:
+```typescript
+export function errorResponse(error: Error | ApiError | unknown): NextResponse {
+  const response = {
+    success: false,
+    error: error instanceof Error ? error.message : 'Unknown error',
+    ...(process.env.NODE_ENV === 'development' && error instanceof Error && {
+      details: {
+        name: error.name,
+        message: error.message,
+        stack: error.stack
+      }
+    })
+  }
+  return NextResponse.json(response, { status: error instanceof ApiError ? error.statusCode : 500 })
+}
+```
+
+## Authentication Endpoints
+
+### 1. Register New Tenant
+POST /register
+- Creates a new tenant and admin user
+- Sends verification email
+- Returns tenant and user details
+
+### 2. Verify Email
+GET /verify-email
+- Verifies user email using token
+- Updates user and tenant status
+- Enables login access
+
+### 3. Login
+POST /login
+- Authenticates user credentials
+- Validates email verification
+- Returns JWT token and user info
+
+## Request/Response Format
+All endpoints use JSON format:
+- Content-Type: application/json
+- Accept: application/json
+
+## Error Handling
+Standard error response format:
+```json
+{
+  "success": false,
+  "error": "Error message",
+  "details": {} // Optional additional details
+}
+```
+
+## Status Codes
+- 200: Success
+- 201: Created
+- 400: Bad Request
+- 401: Unauthorized
+- 403: Forbidden
+- 404: Not Found
+- 500: Server Error
+
+## Authentication Flow
+1. Register tenant/user
+2. Verify email via link
+3. Login with credentials
+4. Use JWT token for subsequent requests
+
+## Security
+- Password hashing with bcrypt
+- JWT token authentication
+- Email verification required
+- Rate limiting implemented
+- Input validation with Zod
+
+## Testing Steps
+
+1. Basic Registration:
+```bash
+curl -X POST http://localhost:3000/api/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "companyName": "Test Company",
+    "companyEmail": "test@example.com",
+    "password": "SecurePass123!",
+    "subdomain": "testcompany",
+    "numberOfBranches": 1
+  }'
+```
+
+2. Validation Test:
+```bash
+curl -X POST http://localhost:3000/api/register \
+  -H "Content-Type: application/json" \
+  -d '{
+    "companyName": "",
+    "companyEmail": "invalid-email",
+    "password": "weak",
+    "subdomain": "",
+    "numberOfBranches": "invalid"
+  }'
+```
+
+## Next Steps
+
+1. Implement proper request validation
+2. Add request body parsing middleware
+3. Enhance error logging
+4. Add rate limiting
+5. Implement proper CORS handling
+6. Add request timeout handling
+7. Implement proper security headers
