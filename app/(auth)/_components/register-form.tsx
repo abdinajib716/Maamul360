@@ -61,6 +61,8 @@ export function RegisterForm() {
     },
   })
 
+  const [subdomain, setSubdomain] = useState('')
+
   async function onSubmit(values: z.infer<typeof formSchema>) {
     try {
       setIsLoading(true)
@@ -95,16 +97,21 @@ export function RegisterForm() {
         throw new Error(data.error || 'Registration failed')
       }
 
-      if (data.emailError) {
-        toast.error(
-          'Registration successful, but verification email could not be sent. Please contact support.'
-        )
+      if (data.success) {
+        toast.success(data.message)
+        // Use current domain for redirect
+        const currentDomain = window.location.host
+        const successUrl = new URL('/registration-success', `http://${currentDomain}`)
+        successUrl.searchParams.set('email', data.data.email)
+        successUrl.searchParams.set('subdomain', data.data.subdomain)
+        successUrl.searchParams.set('source', 'registration')
+        router.push(successUrl.toString())
       } else {
-        toast.success('Registration successful! Please check your email to verify your account.')
+        toast.error(data.error || 'Registration failed')
       }
 
       form.reset()
-      router.push('/login')
+      
     } catch (error) {
       console.error('Registration error:', error)
       toast.error(error instanceof Error ? error.message : 'Failed to register')
@@ -149,8 +156,27 @@ export function RegisterForm() {
             <FormItem>
               <FormLabel>Subdomain</FormLabel>
               <FormControl>
-                <Input placeholder="Choose your subdomain" {...field} disabled={isLoading} />
+                <Input
+                  id="subdomain"
+                  name="subdomain"
+                  placeholder="Subdomain"
+                  type="text"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  disabled={isLoading}
+                  pattern="[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
+                  title="Lowercase letters, numbers, and hyphens only. Must start and end with letter or number."
+                  required
+                  value={subdomain}
+                  onChange={(e) => setSubdomain(e.target.value.toLowerCase())}
+                  {...field}
+                />
               </FormControl>
+              {subdomain && (
+                <p className="px-1 text-sm text-muted-foreground">
+                  Your URL will be: {subdomain}.localhost:3000
+                </p>
+              )}
               <FormMessage />
             </FormItem>
           )}

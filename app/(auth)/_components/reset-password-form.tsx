@@ -58,8 +58,8 @@ export function ResetPasswordForm({ token }: ResetPasswordFormProps) {
       }
 
       toast.success('Password reset successful')
-      // Redirect to login page
-      window.location.href = '/login'
+      // Redirect to tenant-specific login page
+      window.location.href = `http://${data.data.subdomain}.localhost:3000/login`
     } catch (error) {
       toast.error(error.message)
     } finally {

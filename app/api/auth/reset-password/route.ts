@@ -61,6 +61,9 @@ export async function POST(request: Request) {
     // Find user by reset token
     const user = await prisma.user.findUnique({
       where: { resetToken: token },
+      include: {
+        tenant: true, // Include tenant information
+      }
     })
 
     if (!user) {
@@ -93,7 +96,10 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ 
       success: true,
-      message: 'Password reset successful' 
+      message: 'Password reset successful',
+      data: {
+        subdomain: user.tenant.subdomain // Include tenant subdomain for redirect
+      }
     })
   } catch (error) {
     console.error('Password reset error:', error)

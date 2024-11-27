@@ -112,19 +112,18 @@ export async function POST(req: NextRequest) {
         console.error('Failed to send verification email:', error)
       }
 
-      // Return success response
+      // After successful registration
       return NextResponse.json({
         success: true,
-        data: {
-          tenantId: result.tenant.id,
-          email: result.user.email,
-          subdomain: result.tenant.subdomain,
-          emailSent,
-        },
         message: emailSent
           ? 'Registration successful! Please check your email to verify your account.'
           : 'Registration successful but verification email could not be sent. Please contact support.',
-      }, { status: 201 })
+        data: {
+          email: result.user.email,
+          subdomain: result.tenant.subdomain,
+          redirectUrl: `http://maamul360.local:3000/registration-success`
+        }
+      })
 
     } catch (error) {
       if (error instanceof z.ZodError) {

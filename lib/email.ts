@@ -79,28 +79,47 @@ export async function sendVerificationEmail({ email, token }: VerificationEmailP
     throw new EmailError('Missing APP_URL configuration')
   }
 
-  const verificationUrl = `${appUrl}/verify-email?token=${token}`
+  // Create verification URL with token
+  const verificationUrl = `${appUrl}/api/verify-email?token=${encodeURIComponent(token)}`
 
-  await sendEmail({
-    to: email,
-    subject: 'Verify your email address',
-    html: `
-      <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto;">
-        <h2>Welcome to Maamul360!</h2>
-        <p>Thank you for registering. Please verify your email address by clicking the button below:</p>
+  const emailTemplate = `
+    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; background-color: #f9fafb; border-radius: 10px;">
+      <div style="text-align: center; margin-bottom: 30px;">
+        <h1 style="color: #111827; margin-bottom: 10px;">Welcome to Maamul360!</h1>
+        <p style="color: #4b5563; font-size: 16px;">Thank you for registering. Please verify your email address to get started.</p>
+      </div>
+      
+      <div style="background-color: white; padding: 30px; border-radius: 8px; box-shadow: 0 2px 4px rgba(0, 0, 0, 0.1);">
         <div style="text-align: center; margin: 30px 0;">
           <a href="${verificationUrl}" 
-             style="background-color: #0070f3; color: white; padding: 12px 24px; 
-                    text-decoration: none; border-radius: 5px; display: inline-block;">
+             style="background-color: #0070f3; color: white; padding: 14px 28px; 
+                    text-decoration: none; border-radius: 6px; display: inline-block;
+                    font-size: 16px; font-weight: 500; letter-spacing: 0.5px;">
             Verify Email Address
           </a>
         </div>
-        <p>Or copy and paste this URL into your browser:</p>
-        <p>${verificationUrl}</p>
+        
+        <div style="margin-top: 30px; padding-top: 20px; border-top: 1px solid #e5e7eb;">
+          <p style="color: #6b7280; font-size: 14px; margin-bottom: 10px;">Or copy and paste this URL into your browser:</p>
+          <p style="color: #0070f3; word-break: break-all; font-size: 14px;">${verificationUrl}</p>
+        </div>
+      </div>
+      
+      <div style="margin-top: 30px; text-align: center; color: #6b7280; font-size: 14px;">
         <p>This verification link will expire in 24 hours.</p>
         <p>If you did not create an account, please ignore this email.</p>
+        <div style="margin-top: 20px;">
+          <p style="margin: 5px 0;">Best regards,</p>
+          <p style="margin: 5px 0; font-weight: 500;">The Maamul360 Team</p>
+        </div>
       </div>
-    `,
+    </div>
+  `
+
+  await sendEmail({
+    to: email,
+    subject: 'Verify your Maamul360 account',
+    html: emailTemplate
   })
 }
 

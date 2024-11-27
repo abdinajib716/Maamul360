@@ -60,8 +60,11 @@ export function LoginForm() {
         throw new Error(data.error || 'Login failed')
       }
 
-      // Redirect to dashboard on successful login
-      router.push('/dashboard')
+      const data = await response.json()
+      
+      // Construct tenant URL and redirect
+      const tenantUrl = `http://${values.subdomain}.maamul360.local:3000/dashboard`
+      window.location.href = tenantUrl
     } catch (error) {
       console.error('Login error:', error)
       setError(error instanceof Error ? error.message : 'Login failed')
